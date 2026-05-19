@@ -21,11 +21,11 @@
 > 
 > 2. **Clone the Local Repository** >    Launch your command terminal and pull down the files:
 >    ```bash
->    git clone [https://github.com/goldydrop/Pin-Sniper.git](https://github.com/goldydrop/Pin-Sniper.git)
+>    git clone https://github.com/goldydrop/Pin-Sniper.git
 >    cd Pin-Sniper
 >    ```
 > 
-> 3. **Initialize Dependencies** >    Download and synchronize the required modules:
+> 3. **Initialize Dependencies** >    Download the the required modules using this line with the terminal, inside the Pin-Sniper folder:
 >    ```bash
 >    npm install
 >    ```
