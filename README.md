@@ -17,7 +17,7 @@
 > ### 🛠️ How to Build from Source Code
 > Follow these steps to compile the raw application files into a distribution executable on your local machine:
 >
-> 1. **Check System Prerequisites** >    Ensure your computer has [Node.js](https://nodejs.org/) installed to manage background packages.
+> 1. **Check System Prerequisites** >    Ensure your computer has [Node.js](https://nodejs.org/) and [Git](https://nodejs.org/) installed to manage background packages.
 > 
 > 2. **Clone the Local Repository** >    Launch your command terminal and pull down the files:
 >    ```bash
