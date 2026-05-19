@@ -1,0 +1,43 @@
+{
+	"name": "pinsniperapp",
+	"productName": "Pin Sniper",
+	"version": "1.0.0",
+	"description": "Aggressive Desktop Scraper",
+	"main": "main.js",
+	"scripts": {
+		"start": "electron .",
+		"dist": "electron-builder --win"
+	},
+	"build": {
+		"appId": "com.pinsniper.app",
+		"productName": "Pin Sniper",
+		"directories": {
+			"output": "dist"
+		},
+		"win": {
+			"target": [
+				"nsis"
+			],
+			"icon": "icon.ico"
+		},
+		"nsis": {
+			"oneClick": true,
+			"perMachine": true,
+			"installerIcon": "icon.ico",
+			"uninstallerIcon": "icon.ico",
+			"uninstallDisplayName": "Pin Sniper"
+		},
+		"mac": {
+			"target": "dmg",
+			"icon": "icon.icns"
+		}
+	},
+	"keywords": [],
+	"author": "Goldy Apps",
+	"license": "ISC",
+	"type": "commonjs",
+	"devDependencies": {
+		"electron": "^42.1.0",
+		"electron-builder": "^26.8.1"
+	}
+}
