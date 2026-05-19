@@ -43,7 +43,7 @@
 Because this application is independently developed and does not have an expensive, commercially signed digital certificate, Windows will look at it suspiciously. 
 
 * **During Installation:** Windows SmartScreen will likely pop up a blue warning saying *"Windows protected your PC"*. This is completely normal for custom tools. Click **"More Info"** and then click the **"Run Anyway"** button that appears.
-* **Antivirus:** Some overly aggressive antivirus programs might flag the scraper because it runs in the background and makes rapid web requests. You may need to add it to your antivirus exclusion list if it gets blocked durring building process.
+* **Antivirus:** Some overly aggressive antivirus programs might flag the scraper because it runs in the background and makes rapid web requests. You may need to add it to your antivirus exclusion list if it gets blocked durring the building process.
 
 ---
 
