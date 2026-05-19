@@ -1,5 +1,5 @@
 # 🎯 Pin Sniper
-### **Aggressive & High-Speed Desktop Scraper Application**
+### **High-Speed Desktop Media Scraper for pin-based image boards.**
 
 ![Environment](https://img.shields.io/badge/Environment-Node.js-green?style=flat-square) ![Framework](https://img.shields.io/badge/Framework-Electron-blue?style=flat-square) ![Platform](https://img.shields.io/badge/Platform-Windows-orange?style=flat-square)
 
@@ -7,10 +7,10 @@
 
 ### 🚀 Key Features
 
-* **Hybrid Extraction Grid:** Pulls media feeds cleanly via target-specific links or direct injection configurations.
-* **Silent System Architecture:** Runs smoothly out of the Windows system tray without crowding the taskbar.
-* **Adaptive Timing Engine:** Integrated rate-limiting delays to preserve optimal connection performance.
-* **Single Instance Lock:** Intelligent local port management prevents background process conflicts.
+* **Board & Grid Extraction:** Cleanly pulls high-quality visual media directly via target URLs or custom board configurations.
+* **Silent System Tray Operation:** Runs entirely in the background without cluttering up your Windows taskbar.
+* **Adaptive Rate-Limiting:** Built-in timing delays prevent your IP from getting blocked and preserve optimal connection speeds.
+* **Process Conflict Prevention:** Single-instance port locking ensures smooth, crash-free background operations.
 
 ---
 
