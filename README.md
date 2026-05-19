@@ -25,12 +25,12 @@
 >    cd Pin-Sniper
 >    ```
 > 
-> 3. **Initialize Dependencies** >    Download the the required modules using this line with the terminal, inside the Pin-Sniper folder:
+> 3. **Initialize Dependencies** >    Download the required modules using this line within the terminal, inside the Pin-Sniper folder:
 >    ```bash
 >    npm install
 >    ```
 > 
-> 4. **Compile the Distribution Package** >    **(Open Command Prompt as Administrator!)** Generate the production Windows desktop installer application:
+> 4. **Compile the Distribution Package** >    **(Open Command Prompt as Administrator!)** run line in pin-sniper folder to build a Windows setup.exe and portable exe :
 >    ```bash
 >    npm run dist
 >    ```
