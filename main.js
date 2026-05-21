@@ -1,40 +1,36 @@
-const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron'); // 🛠️ Added Tray & Menu
+const { app, BrowserWindow, ipcMain, Tray, Menu, net } = require('electron'); 
 const path = require('path');
 const fs = require('fs');
-const https = require('https');
 const os = require('os');
 const http = require('http');
 
+const cleanUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+
 // ========================================================
-// 1. 🛡️ SINGLE INSTANCE LOCK (ANTI-TRAFFIC JAM GATEKEEPER)
+// 1. 🛡️ SINGLE INSTANCE LOCK
 // ========================================================
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
-    // If another copy is already running, kill this duplicate copy immediately 
-    // before it has a chance to fight over port 31337!
-    console.log("[INFO] Pin Sniper is already running. Closing duplicate instance.");
     app.quit();
 } else {
 
-    // If someone tries to open a second copy, bring the existing background app back to the front!
-    app.on('second-instance', (event, commandLine, workingDirectory) => {
+    app.on('second-instance', () => {
         if (mainWindow) {
             if (mainWindow.isMinimized()) mainWindow.restore();
-            mainWindow.show(); // 🛠️ Critical because your window hides instead of closing!
+            mainWindow.show(); 
             mainWindow.focus();
         }
     });
 
     // ========================================================
-    // 2. 🎯 YOUR ORIGINAL APP LOGIC & CORE VARIABLES
+    // 2. 🎯 CORE VARIABLES
     // ========================================================
     let mainWindow;
-    let crawlerWin = null;
-    let tray = null; // 🛠️ Added Tray variable
+    let tray = null; 
 
     global.stopSignal = 0; 
-    global.appState = { phase: 'idle' }; 
+    global.appState = { phase: 'idle', downloaded: 0, total: 0 }; 
 
     function logMessage(msg, type = 'info') {
         console.log(`[${type.toUpperCase()}] ${msg}`);
@@ -43,93 +39,53 @@ if (!gotTheLock) {
 
     function createWindow () {
       mainWindow = new BrowserWindow({ 
-          width: 450, 
-          height: 350, 
-          x: 0, 
-          y: 0,
+          width: 450, height: 350, 
           title: "Pin Sniper V3", 
-          autoHideMenuBar: true, 
-          resizable: false, 
-          show: true, // 🛠️ CHANGED TO TRUE: App will now open the UI immediately!
-          icon: path.join(__dirname, 'icon.ico'), // 🛠️ ADDED THIS LINE!
+          autoHideMenuBar: true, resizable: false, show: true, 
+          icon: path.join(__dirname, 'icon.ico'), 
           webPreferences: { nodeIntegration: true, contextIsolation: false }
       });
-      
       mainWindow.loadFile('index.html');
-
-      // 🛠️ Prevents the app from quitting when you hit the 'X' on the window
-      mainWindow.on('close', (event) => {
-          if (!app.isQuiting) {
-              event.preventDefault();
-              mainWindow.hide();
-          }
+      mainWindow.on('close', (e) => {
+          if (!app.isQuiting) { e.preventDefault(); mainWindow.hide(); }
       });
     }
 
-    // 🛠️ Hides the app icon from the macOS Dock
-    if (app.dock) {
-        app.dock.hide(); 
-    }
+    if (app.dock) app.dock.hide(); 
 
     app.whenReady().then(() => { 
         createWindow(); 
         startLocalServer(); 
-
-        // 🛠️ SETUP THE SYSTEM TRAY
-        const iconPath = path.join(__dirname, 'icon.ico'); 
-        tray = new Tray(iconPath);
-
-        const contextMenu = Menu.buildFromTemplate([
-            { label: '🎯 Pin Sniper is Running', enabled: false },
-            { type: 'separator' },
-            { 
-                label: 'Show Logs', 
-                click: () => {
-                    if (mainWindow) mainWindow.show();
-                }
-            },
-            { 
-                label: 'Quit Pin Sniper', 
-                click: () => {
-                    app.isQuiting = true;
-                    app.quit();
-                }
-            }
-        ]);
-
-        tray.setToolTip('Pin Sniper Background Server');
-        tray.setContextMenu(contextMenu);
+        tray = new Tray(path.join(__dirname, 'icon.ico'));
+        tray.setToolTip('Pin Sniper Server');
+        tray.setContextMenu(Menu.buildFromTemplate([
+            { label: 'Show Logs', click: () => { if (mainWindow) mainWindow.show(); } },
+            { label: 'Quit', click: () => { app.isQuiting = true; app.quit(); } }
+        ]));
     });
 
-    // 🛠️ Keeps the app alive in the background even if no windows are open
-    app.on('window-all-closed', (e) => { 
-        e.preventDefault(); 
-    });
+    app.on('window-all-closed', (e) => { e.preventDefault(); });
 
-    // 🛠️ FIXED ANIMATION ENGINE
-    ipcMain.on('resize-window', (event, expand) => {
+    ipcMain.on('resize-window', (e, expand) => {
         if (!mainWindow) return;
-        
         mainWindow.setResizable(true); 
-        const bounds = mainWindow.getBounds();
-        let currentHeight = bounds.height;
+        let currentHeight = mainWindow.getBounds().height;
         const targetHeight = expand ? 620 : 350; 
         const step = expand ? 25 : -25;
-        
         const animate = setInterval(() => {
             currentHeight += step;
             if ((expand && currentHeight >= targetHeight) || (!expand && currentHeight <= targetHeight)) {
                 clearInterval(animate);
-                mainWindow.setBounds({ width: bounds.width, height: targetHeight });
+                mainWindow.setBounds({ width: mainWindow.getBounds().width, height: targetHeight });
                 mainWindow.setResizable(false); 
             } else {
-                mainWindow.setBounds({ width: bounds.width, height: currentHeight });
+                mainWindow.setBounds({ width: mainWindow.getBounds().width, height: currentHeight });
             }
         }, 10);
     });
 
     // ========================================================
-    // 3. ⚙️ HARVESTER ENGINE & SCRAPING LOGIC
+    // 3. ⚙️ DOWNLOAD & SCRAPING ENGINE
     // ========================================================
     function getFolderName(urlStr) {
         try {
@@ -144,232 +100,187 @@ if (!gotTheLock) {
         } catch (e) { return "PinSniper_Downloads"; }
     }
 
-    // 🛠️ FIXED: ZERO-BYTE FILE PREVENTION & FAKE BROWSER HEADERS
-    function downloadFile(url, filename, folderName, currentIndex, totalItems) {
-      return new Promise((resolve) => {
-          const targetDir = path.join(os.homedir(), 'Downloads', folderName);
-          if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
+    async function downloadFile(url, baseFilename, folderName, currentIndex, totalItems) {
+        try {
+            const targetDir = path.join(os.homedir(), 'Downloads', folderName);
+            if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
-          const downloadPath = path.join(targetDir, filename);
-
-          const requestOptions = {
-              headers: {
-                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-                  'Referer': 'https://www.pinterest.com/',
-                  'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
-              }
-          };
-
-          https.get(url, requestOptions, (response) => {
-            // ONLY create the file if Pinterest says OK (200). 
-            // If it's a 403 Forbidden, we skip creating the blank file!
-            if (response.statusCode !== 200) { 
-                logMessage(`⚠️ Blocked by Pinterest (Error ${response.statusCode}) - Skipping ${filename}`, 'error');
-                resolve(false); 
-                return; 
-            }
-            
-            const fileStream = fs.createWriteStream(downloadPath);
-            response.pipe(fileStream);
-            
-            fileStream.on('finish', () => {
-              fileStream.close();
-              logMessage(`🟢 [${currentIndex}/${totalItems}] Saved: ${filename}`, 'success');
-              resolve(true);
+            // Chromium Architecture Infused Fetch Protocol
+            const response = await net.fetch(url, {
+                method: 'GET',
+                headers: {
+                    'User-Agent': cleanUserAgent,
+                    'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Cache-Control': 'no-cache',
+                    'Referer': 'https://www.pinterest.com/',
+                    'Origin': 'https://www.pinterest.com'
+                }
             });
-          }).on('error', () => { resolve(false); });
-      });
+
+            if (!response.ok) {
+                logMessage(`❌ Download blocked! (Status: ${response.status}) on Pin ${currentIndex}`, 'error');
+                return false;
+            }
+
+            // Inspect dynamic response headers for correct format allocation
+            let derivedExt = 'jpg';
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('image/webp')) derivedExt = 'webp';
+            else if (contentType.includes('image/png')) derivedExt = 'png';
+            else if (contentType.includes('image/gif')) derivedExt = 'gif';
+            else if (contentType.includes('video/mp4')) derivedExt = 'mp4';
+            else {
+                const urlPathClean = new URL(url).pathname.split('?')[0];
+                const pathExt = urlPathClean.split('.').pop().toLowerCase();
+                if (['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4'].includes(pathExt)) {
+                    derivedExt = pathExt;
+                }
+            }
+
+            const filename = `${baseFilename}.${derivedExt}`;
+            const downloadPath = path.join(targetDir, filename);
+
+            // Stream chunk buffer configuration
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+            
+            await fs.promises.writeFile(downloadPath, buffer);
+            logMessage(`🟢 [${currentIndex}/${totalItems}] Saved: ${filename}`, 'success');
+            return true;
+
+        } catch (err) {
+            logMessage(`❌ Download Pipeline Error on Pin ${currentIndex}: ${err.message}`, 'error');
+            return false;
+        }
     }
 
+    // GHOST FETCH: Scrapes raw HTML directly to completely bypass the login wall
     async function extractMediaFromPin(pinUrl) {
-        return new Promise((resolve) => {
-            const tempWin = new BrowserWindow({ show: false, webPreferences: { webSecurity: false, nodeIntegration: false } });
-            tempWin.loadURL(pinUrl);
-            tempWin.webContents.once('did-finish-load', async () => {
-                try {
-                    const mediaData = await tempWin.webContents.executeJavaScript(`
-                      (() => {
-                          let data = { type: 'none', url: '' };
-                          let html = document.documentElement.innerHTML;
-                          let mp4Match = html.match(/"url":"(https:\\\/\\\/[^"]+\\.mp4[^"]*)"/);
-                          if (mp4Match) { data.type = 'video'; data.url = mp4Match[1].replace(/\\\\/g, ''); return data; }
-                          let imgMatch = html.match(/"url":"(https:\\\/\\\/[^"]+\\\/originals\\\/[^"]+\\.(jpg|png|gif))"/);
-                          if (imgMatch) { data.type = 'image'; data.url = imgMatch[1].replace(/\\\\/g, ''); return data; }
-                          return data;
-                      })();
-                    `);
-                    tempWin.destroy();
-                    resolve(mediaData);
-                } catch (error) { tempWin.destroy(); resolve({ type: 'none', url: '' }); }
+        try {
+            logMessage(`Ghost-fetching raw HTML to bypass login wall...`);
+            const response = await net.fetch(pinUrl, {
+                headers: {
+                    'User-Agent': cleanUserAgent,
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                }
             });
-        });
+            
+            if (!response.ok) return { type: 'none', url: '' };
+            const html = await response.text();
+            
+            // 1. Hunt for video streams
+            const videoMatch = html.match(/<meta\s+property="og:video"\s+content="([^"]+)"/i) || 
+                               html.match(/"contentUrl"\s*:\s*"([^"]+\.mp4)"/i) ||
+                               html.match(/(https:\/\/[^\s"'<>]+\.mp4)/i);
+                               
+            if (videoMatch && videoMatch[1]) {
+                const cleanUrl = videoMatch[1].replace(/\\/g, ''); 
+                logMessage(`🎯 SUCCESS: Bypassed login wall and extracted video stream!`);
+                return { type: 'video', url: cleanUrl };
+            }
+            
+            // 2. Fallback to image streams
+            const imageMatch = html.match(/<meta\s+property="og:image"\s+content="([^"]+)"/i) ||
+                               html.match(/"url"\s*:\s*"(https?:[^"]+\/(?:originals|736x)\/[^"]+\.(?:jpg|png|webp))"/i);
+            
+            if (imageMatch && imageMatch[1]) {
+                const cleanUrl = imageMatch[1].replace(/\\/g, '');
+                logMessage(`🎯 Bypassed login wall and extracted high-res image!`);
+                return { type: 'image', url: cleanUrl };
+            }
+
+            logMessage(`❌ No hidden media streams found in source markup.`, 'error');
+            return { type: 'none', url: '' };
+
+        } catch (error) {
+            logMessage(`❌ Headless network fetch failed: ${error.message}`, 'error');
+            return { type: 'none', url: '' };
+        }
     }
 
     async function executeSnipe(config) {
       global.stopSignal = 0; 
-      
-      let folderName = (config.customName && config.customName !== "") ? 
-          config.customName.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_") : getFolderName(config.url);
+      let folderName = (config.customName && config.customName !== "") ? config.customName.replace(/[<>:"/\\|?*\x00-\x1F]/g, "_") : getFolderName(config.url);
 
-      // 🛠️ THE NEW "EAGLE" HYBRID MODE
-      if (config.mode === 'direct' && config.directLinks) {
+      // HYBRID BUNDLE BALANCER
+      if (config.mode === 'direct' && Array.isArray(config.directLinks)) {
           global.appState.phase = 'downloading';
-          logMessage(`📥 HYBRID MODE: Received ${config.directLinks.length} media links from Chrome.`);
-          
-          const total = config.directLinks.length;
-          for (let i = 0; i < total; i++) {
-              if (global.stopSignal >= 2) {
-                  logMessage(`🛑 DOWNLOADS CANCELLED.`);
+          global.appState.total = config.directLinks.length;
+          global.appState.downloaded = 0;
+          logMessage(`🚀 Processing bundle: downloading ${config.directLinks.length} files into folder [${folderName}]...`);
+
+          for (let i = 0; i < config.directLinks.length; i++) {
+              if (global.stopSignal === 2) {
+                  logMessage("🛑 Operation stopped by user request.", "warning");
                   break;
               }
               const url = config.directLinks[i];
-              const ext = url.includes('.mp4') ? 'mp4' : 'jpg';
-              const filename = `DirectSnipe_${i+1}_${Date.now()}.${ext}`;
+              const baseFilename = `PinSniper_${Date.now()}_${i + 1}`;
               
-              logMessage(`Saving item [${i + 1}/${total}]...`);
-              await downloadFile(url, filename, folderName, i + 1, total);
+              await downloadFile(url, baseFilename, folderName, i + 1, config.directLinks.length);
+              global.appState.downloaded = i + 1;
               
-              if (!config.fastMode) await new Promise(r => setTimeout(r, 500)); // Rate limiting
+              // 🧠 Proactive Rate Limit Mitigator (200ms spacing protect signature)
+              await new Promise(r => setTimeout(r, 200));
           }
-          global.appState.phase = 'finished'; 
-          logMessage(`🏆 ALL DIRECT TASKS FINISHED!`, 'success');
+
+          global.appState.phase = 'finished';
           if(mainWindow) mainWindow.webContents.send('snipe-finished');
           return;
       }
 
-      // --- STANDARD GHOST CRAWLER (For Public Links) ---
+      // DEFAULT PROTOCOL: Single Pin headless extraction
       global.appState.phase = 'scrolling'; 
-      logMessage(`🚀 INITIATING SNIPE PROTOCOL...`);
+      global.appState.total = 1;
+      global.appState.downloaded = 0;
+      logMessage(`🚀 INITIATING HEADLESS SNIPE PROTOCOL...`);
 
       const isSinglePin = /\/(?:pin|story|idea|idea-pin)\//i.test(config.url);
       
-      if (isSinglePin && !config.keepGoing) {
+      if (isSinglePin) {
           global.appState.phase = 'downloading'; 
           logMessage(`Extracting Single Pin...`);
+          
           const media = await extractMediaFromPin(config.url);
           if (media.type !== 'none') {
-              await downloadFile(media.url, `PinSniper_${Date.now()}.${media.type === 'video' ? 'mp4' : 'jpg'}`, folderName, 1, 1);
+              logMessage(`Downloading asset...`);
+              const baseFilename = `PinSniper_${Date.now()}`;
+              await downloadFile(media.url, baseFilename, folderName, 1, 1);
+              global.appState.downloaded = 1;
+          } else {
+              logMessage(`❌ No asset was downloaded.`, 'error');
           }
+          
           global.appState.phase = 'finished'; 
           if(mainWindow) mainWindow.webContents.send('snipe-finished');
-
       } else {
-          logMessage(`Releasing invisible ghost crawler (Desktop Mode)...`);
-          crawlerWin = new BrowserWindow({ show: false, width: 1920, height: 1080, webPreferences: { webSecurity: false } });
-
-          crawlerWin.on('page-title-updated', (event, title) => {
-              if (title.startsWith('PIN_COUNT:')) logMessage(`🎯 Live Scanner: Locked onto ${title.split(':')[1]} pins so far...`);
-          });
-          
-          crawlerWin.loadURL(config.url);
-
-          crawlerWin.webContents.once('did-finish-load', async () => {
-              logMessage(`Initializing harvest grid lock...`);
-              const pinLinks = await crawlerWin.webContents.executeJavaScript(`
-                  new Promise((resolve) => {
-                      let links = new Set(); let lastHeight = 0; let idleCount = 0;
-                      let keepGoing = ${config.keepGoing}; let lastReportedCount = 0;
-                      
-                      let timer = setInterval(() => {
-                          if (window.forceStop) { clearInterval(timer); resolve(Array.from(links)); return; }
-                          let searchArea = document; 
-                          if (!keepGoing) searchArea = document.querySelector('[data-test-id="board-feed"]') || document.querySelector('[role="list"]') || document;
-                          if (searchArea) {
-                              searchArea.querySelectorAll('a[href^="/pin/"]').forEach(a => {
-                                  const rect = a.getBoundingClientRect();
-                                  if (rect.width > 0 && rect.height > 0) {
-                                      let cleanUrl = a.href.split('?')[0]; 
-                                      if (!cleanUrl.endsWith('/')) cleanUrl += '/'; 
-                                      if (/https?:\\/\\/[^\\/]+\\/pin\\/\\d+\\/$/.test(cleanUrl)) links.add(cleanUrl);
-                                  }
-                              });
-                          }
-                          if (links.size !== lastReportedCount) { document.title = 'PIN_COUNT:' + links.size; lastReportedCount = links.size; }
-                          window.scrollTo(0, document.body.scrollHeight);
-                          if (!keepGoing) {
-                              if (document.body.scrollHeight === lastHeight) {
-                                  idleCount++;
-                                  if (idleCount > 2) { clearInterval(timer); resolve(Array.from(links)); }
-                              } else { idleCount = 0; lastHeight = document.body.scrollHeight; }
-                          }
-                      }, 1000);
-                  });
-              `);
-              
-              crawlerWin.destroy(); crawlerWin = null;
-              const totalPins = pinLinks.length;
-              
-              if (totalPins === 0 || global.stopSignal >= 2) {
-                  logMessage(`❌ Harvest Aborted.`, 'error');
-                  global.appState.phase = 'finished'; 
-                  if(mainWindow) mainWindow.webContents.send('snipe-finished');
-                  return;
-              }
-
-              global.appState.phase = 'downloading'; 
-              logMessage(`🎯 HARVEST COMPLETE: Found ${totalPins} True Pins. Starting downloads...`);
-
-              for (let i = 0; i < totalPins; i++) {
-                  if (global.stopSignal >= 2) break;
-                  logMessage(`Ripping pin [${i + 1}/${totalPins}]...`);
-                  const media = await extractMediaFromPin(pinLinks[i]);
-                  if (media.type !== 'none') {
-                      const filename = `BoardItem_${i+1}_${Date.now()}.${media.type === 'video' ? 'mp4' : 'jpg'}`;
-                      await downloadFile(media.url, filename, folderName, i + 1, totalPins);
-                  }
-                  if (!config.fastMode) await new Promise(r => setTimeout(r, 1000));
-              }
-
-              global.appState.phase = 'finished'; 
-              logMessage(`🏆 ALL TASKS FINISHED!`, 'success');
-              if(mainWindow) mainWindow.webContents.send('snipe-finished');
-          });
+          logMessage(`❌ Processing failed. Open a single pin closeup or scan using the menu overlay.`, 'error');
+          global.appState.phase = 'finished'; 
+          if(mainWindow) mainWindow.webContents.send('snipe-finished');
       }
     }
 
-    // ========================================================
-    // 4. 📡 LOCAL BRIDGE SERVER 
-    // ========================================================
     function startLocalServer() {
       const server = http.createServer((req, res) => {
         res.setHeader('Access-Control-Allow-Origin', '*');
         res.setHeader('Access-Control-Allow-Methods', 'OPTIONS, POST, GET');
         res.setHeader('Access-Control-Allow-Headers', 'Content-Type'); 
-        
         if (req.method === 'OPTIONS') { res.writeHead(204); res.end(); return; }
-
         if (req.method === 'GET' && req.url === '/status') {
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify(global.appState));
-            return;
+            res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify(global.appState)); return;
         }
-
         if (req.method === 'POST' && req.url === '/snipe') {
           let body = '';
           req.on('data', chunk => body += chunk.toString());
-          req.on('end', () => {
-            const config = JSON.parse(body);
-            executeSnipe(config);
-            res.writeHead(200); res.end();
-          });
+          req.on('end', () => { executeSnipe(JSON.parse(body)); res.writeHead(200); res.end(); });
         }
-
         if (req.method === 'POST' && req.url === '/stop') {
-            if (global.appState.phase === 'scrolling') {
-                global.stopSignal = 1; 
-                if (crawlerWin) {
-                    crawlerWin.webContents.executeJavaScript('window.forceStop = true;').catch(() => {});
-                    logMessage(`⚠️ SCROLL STOP REQUESTED: Halting crawler...`);
-                }
-            } else if (global.appState.phase === 'downloading') {
-                global.stopSignal = 2; 
-                global.appState.phase = 'finished';
-                logMessage(`🛑 HARD STOP SIGNAL RECEIVED: Cancelling downloads...`, 'error');
-            }
+            if (global.appState.phase === 'downloading') { global.stopSignal = 2; global.appState.phase = 'finished'; }
             res.writeHead(200); res.end();
         }
       });
-
-      server.listen(31337, '127.0.0.1', () => console.log('[INFO] 📡 Bridge Online: 127.0.0.1:31337'));
+      server.listen(31337, '127.0.0.1');
     }
 }
