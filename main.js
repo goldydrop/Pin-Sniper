@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron'); // 🛠️ Added Tray & Menu
+const { app, BrowserWindow, ipcMain, Tray, Menu } = require('electron'); // 🛠️ Added Tray & Menu
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
@@ -76,7 +76,7 @@ if (!gotTheLock) {
         startLocalServer(); 
 
         // 🛠️ SETUP THE SYSTEM TRAY
-        const iconPath = path.join(__dirname, 'icon.ico'); // I changed 'icon .png' to 'icon.ico'
+        const iconPath = path.join(__dirname, 'icon.ico'); 
         tray = new Tray(iconPath);
 
         const contextMenu = Menu.buildFromTemplate([
@@ -144,17 +144,34 @@ if (!gotTheLock) {
         } catch (e) { return "PinSniper_Downloads"; }
     }
 
+    // 🛠️ FIXED: ZERO-BYTE FILE PREVENTION & FAKE BROWSER HEADERS
     function downloadFile(url, filename, folderName, currentIndex, totalItems) {
       return new Promise((resolve) => {
           const targetDir = path.join(os.homedir(), 'Downloads', folderName);
           if (!fs.existsSync(targetDir)) fs.mkdirSync(targetDir, { recursive: true });
 
           const downloadPath = path.join(targetDir, filename);
-          const fileStream = fs.createWriteStream(downloadPath);
 
-          https.get(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0.0.0 Safari/537.36', 'Referer': 'https://www.pinterest.com/' } }, (response) => {
-            if (response.statusCode !== 200) { resolve(false); return; }
+          const requestOptions = {
+              headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+                  'Referer': 'https://www.pinterest.com/',
+                  'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+              }
+          };
+
+          https.get(url, requestOptions, (response) => {
+            // ONLY create the file if Pinterest says OK (200). 
+            // If it's a 403 Forbidden, we skip creating the blank file!
+            if (response.statusCode !== 200) { 
+                logMessage(`⚠️ Blocked by Pinterest (Error ${response.statusCode}) - Skipping ${filename}`, 'error');
+                resolve(false); 
+                return; 
+            }
+            
+            const fileStream = fs.createWriteStream(downloadPath);
             response.pipe(fileStream);
+            
             fileStream.on('finish', () => {
               fileStream.close();
               logMessage(`🟢 [${currentIndex}/${totalItems}] Saved: ${filename}`, 'success');
