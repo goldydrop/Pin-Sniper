@@ -6,7 +6,13 @@ const http = require('http');
 
 // 🎬 FFMPEG BINDINGS FOR MOBILE STREAMS
 const ffmpeg = require('fluent-ffmpeg');
-const ffmpegPath = require('ffmpeg-static');
+let ffmpegPath = require('ffmpeg-static');
+
+// 🛠️ THE FIX: Route around the ASAR black hole in production!
+if (ffmpegPath.includes('app.asar')) {
+    ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
+}
+
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const cleanUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
