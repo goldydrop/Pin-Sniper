@@ -4,6 +4,11 @@ const fs = require('fs');
 const os = require('os');
 const http = require('http');
 
+// 🎬 FFMPEG BINDINGS FOR MOBILE STREAMS
+const ffmpeg = require('fluent-ffmpeg');
+const ffmpegPath = require('ffmpeg-static');
+ffmpeg.setFfmpegPath(ffmpegPath);
+
 const cleanUserAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -202,6 +207,24 @@ if (!gotTheLock) {
         }
     }
 
+    // 🎬 NEW: CONVERT .TS TO .MP4 FUNCTION
+    function convertTsToMp4(tsPath, mp4Path) {
+        return new Promise((resolve, reject) => {
+            logMessage(`   -> 🎬 Converting mobile stream to pure MP4...`, 'system');
+            ffmpeg(tsPath)
+                .outputOptions('-c copy') // Lossless speed copy
+                .save(mp4Path)
+                .on('end', () => {
+                    fs.unlinkSync(tsPath); // Clean up the raw .ts file
+                    resolve(true);
+                })
+                .on('error', (err) => {
+                    logMessage(`   -> ❌ FFmpeg Error: ${err.message}`, 'error');
+                    reject(err);
+                });
+        });
+    }
+
     async function executeDirectDownload(links, folderName) {
         if (!links || links.length === 0) return;
 
@@ -220,7 +243,6 @@ if (!gotTheLock) {
 
             let targetUrl = links[i];
 
-            // Auto-upgrade simple image links just in case
             if (!targetUrl.includes('.mp4') && !targetUrl.includes('.m3u8') && targetUrl.includes('pinimg.com')) {
                 if (targetUrl.includes('/736x/') || targetUrl.includes('/236x/') || targetUrl.includes('/474x/')) {
                     targetUrl = targetUrl.replace(/\/(?:\d+x\d*|x|rs_[^/]+)\//g, '/originals/');
@@ -242,7 +264,16 @@ if (!gotTheLock) {
                 let destinationPath = path.join(downloadDir, filename);
 
                 if (ext === 'ts') {
+                    // 1. Download the raw mobile chunks
                     await downloadHLSStream(targetUrl, destinationPath);
+                    
+                    // 2. Determine the final MP4 path
+                    let finalMp4Path = destinationPath.replace('.ts', '.mp4');
+                    
+                    // 3. Fire up FFmpeg
+                    await convertTsToMp4(destinationPath, finalMp4Path);
+                    destinationPath = finalMp4Path; // Update path for the success log
+                    
                 } else {
                     const downloadStandard = async (urlToTry, currentDestPath) => {
                         return new Promise((resolve, reject) => {
