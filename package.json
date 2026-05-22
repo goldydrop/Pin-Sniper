@@ -11,6 +11,9 @@
 	"build": {
 		"appId": "com.pinsniper.app",
 		"productName": "Pin Sniper",
+		"asarUnpack": [
+			"node_modules/ffmpeg-static/**/*"
+		],
 		"directories": {
 			"output": "dist"
 		},
